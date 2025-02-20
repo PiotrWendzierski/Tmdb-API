@@ -2,193 +2,193 @@
 
 namespace App\Services;
 
-use GuzzleHttp\Client;
 use App\Models\Movie;
 use App\Models\Serie;
 use App\Models\Genre;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 
 class TmdbApiService
 {
-    protected $client;
     protected $apiKey;
-    protected $languages = ['en', 'pl', 'de']; // Obsługiwane języki
+    protected $languages = ['en', 'pl', 'de']; // available languages
 
     public function __construct()
     {
-        $this->client = new Client();
         $this->apiKey = env('TMDB_API_KEY');
     }
 
-    public function fetchMovies()
+    //fetch data from TMDB API
+    
+    private function fetchData(string $endpoint, int $itemsToFetch, string $primaryLang): array
     {
-        $moviesData = [];
-        $moviesToFetch = 50; // Liczba filmów do pobrania
-        $moviesPerPage = 20; // TMDB zwraca 20 filmów na stronę
-        $pagesToFetch = ceil($moviesToFetch / $moviesPerPage); // Ile stron pobrać
-        $primaryLang = 'en'; // Pobieramy filmy tylko dla tego języka
-        $movieIds = []; // Lista unikalnych ID filmów
-    
-        // 1. Pobieramy filmy w JEDNYM języku (np. en)
-        for ($page = 1; $page <= $pagesToFetch; $page++) {
-            $response = $this->client->get("https://api.themoviedb.org/3/movie/popular?api_key={$this->apiKey}&language={$primaryLang}&page={$page}");
-            $movies = json_decode($response->getBody(), true)['results'] ?? [];
-    
-            foreach ($movies as $movie) {
-                $id = $movie['id'];
-    
-                if (!isset($moviesData[$id])) { // Zapewniamy unikalność
-                    $movieIds[] = $id;
-    
-                    $moviesData[$id][$primaryLang] = [
-                        'title' => $movie['title'],
-                        'description' => $movie['overview'],
-                        'poster_path' => $movie['poster_path']
-                    ];
-                }
-    
-                if (count($movieIds) >= $moviesToFetch) {
-                    break 2; // Mamy 50 filmów, kończymy pętlę
+        $data = [];
+        $perPage = 20;
+        $pagesToFetch = ceil($itemsToFetch / $perPage);
+        $ids = [];
+
+        try 
+        {
+            for ($page = 1; $page <= $pagesToFetch; $page++) 
+            {
+                $response = Http::get("https://api.themoviedb.org/3/{$endpoint}", [
+                    'api_key' => $this->apiKey,
+                    'language' => $primaryLang,
+                    'page' => $page
+                ]);
+                $items = $response->json()['results'] ?? [];
+                
+                foreach ($items as $item) 
+                {
+                    $id = $item['id'];
+                    if (!isset($data[$id])) 
+                    {
+                        $ids[] = $id;
+                        $data[$id][$primaryLang] = $this->extractItemData($item, $primaryLang);
+                    }
+                    if (count($ids) >= $itemsToFetch) break 2;
                 }
             }
+        } 
+        catch (\Exception $e) 
+        {
+            Log::error("Error fetching data from TMDB: {$e->getMessage()}");
         }
-    
-        // 2. Pobieramy tłumaczenia dla zapisanych filmów
-        foreach ($this->languages as $lang) {
-            if ($lang === $primaryLang) continue; // Pomijamy główny język
-    
-            foreach ($movieIds as $id) {
-                $response = $this->client->get("https://api.themoviedb.org/3/movie/{$id}?api_key={$this->apiKey}&language={$lang}");
-                $movie = json_decode($response->getBody(), true);
-    
-                $moviesData[$id][$lang] = [
-                    'title' => $movie['title'] ?? null,
-                    'description' => $movie['overview'] ?? null
-                ];
-            }
-        }
-    
-        //dd(count($moviesData)); // Teraz powinno zwrócić dokładnie 50!
-    
-        // 3. Zapisujemy do bazy danych
-        foreach ($moviesData as $id => $data) {
-            Movie::updateOrCreate(
-                ['tmdb_id' => $id],
-                [
-                    'title_en' => $data['en']['title'] ?? null,
-                    'title_pl' => $data['pl']['title'] ?? null,
-                    'title_de' => $data['de']['title'] ?? null,
-                    'description_en' => $data['en']['description'] ?? null,
-                    'description_pl' => $data['pl']['description'] ?? null,
-                    'description_de' => $data['de']['description'] ?? null,
-                    'poster_path' => $data['en']['poster_path'] ?? null,
-                ]
-            );
-        }
+
+        return [$data, $ids];
     }
+
+    //extract item data for a specific language
     
-
-
-    public function fetchSeries()
+    private function extractItemData(array $item, string $lang): array
     {
-        $seriesData = [];
-        $seriesToFetch = 10; // Liczba seriali do pobrania
-        $seriesPerPage = 20; // TMDB zwraca 20 seriali na stronę
-        $pagesToFetch = ceil($seriesToFetch / $seriesPerPage); // Obliczamy liczbę stron do pobrania
-        $primaryLang = 'en'; // Pobieramy seriale tylko w jednym języku (np. angielski)
-        $seriesIds = []; // Lista unikalnych ID seriali
+        return [
+            'title' => $item['title'] ?? $item['name'] ?? null,
+            'description' => $item['overview'] ?? null,
+            'poster_path' => $item['poster_path'] ?? null,
+        ];
+    }
+
+    //Fetch translations for a list of items
     
-        // 1. Pobieramy seriale w jednym języku (np. en)
-        for ($page = 1; $page <= $pagesToFetch; $page++) {
-            $response = $this->client->get("https://api.themoviedb.org/3/tv/popular?api_key={$this->apiKey}&language={$primaryLang}&page={$page}");
-            $series = json_decode($response->getBody(), true)['results'] ?? [];
-    
-            foreach ($series as $serie) {
-                $id = $serie['id'];
-    
-                if (!isset($seriesData[$id])) { // Zapewniamy unikalność
-                    $seriesIds[] = $id;
-    
-                    $seriesData[$id][$primaryLang] = [
-                        'title' => $serie['name'],
-                        'description' => $serie['overview'],
-                        'poster_path' => $serie['poster_path']
-                    ];
-                }
-    
-                if (count($seriesIds) >= $seriesToFetch) {
-                    break 2; // Mamy 10 seriali, kończymy pętlę
-                }
-            }
-        }
-    
-        // 2. Pobieramy tłumaczenia dla zapisanych seriali
-        foreach ($this->languages as $lang) {
-            if ($lang === $primaryLang) continue; // Pomijamy główny język
-    
-            foreach ($seriesIds as $id) {
-                $response = $this->client->get("https://api.themoviedb.org/3/tv/{$id}?api_key={$this->apiKey}&language={$lang}");
-                $serie = json_decode($response->getBody(), true);
-    
-                $seriesData[$id][$lang] = [
-                    'title' => $serie['name'] ?? null,
-                    'description' => $serie['overview'] ?? null
-                ];
-            }
-        }
-    
-        // 3. Zapisujemy do bazy danych, ale tylko jeśli nie istnieje już taki rekord
-        foreach ($seriesData as $id => $data) {
-            // Sprawdzamy, czy już istnieje rekord z tymi tytułami
-            $existingSeries = Serie::where('title_en', $data['en']['title'])
-                ->orWhere('title_pl', $data['pl']['title'])
-                ->orWhere('title_de', $data['de']['title'])
-                ->exists();
-    
-            if (!$existingSeries) {
-                Serie::updateOrCreate(
-                    ['id' => $id], // Używamy 'id' zamiast 'tmdb_id'
-                    [
-                        'title_en' => $data['en']['title'] ?? null,
-                        'title_pl' => $data['pl']['title'] ?? null,
-                        'title_de' => $data['de']['title'] ?? null,
-                        'description_en' => $data['en']['description'] ?? null,
-                        'description_pl' => $data['pl']['description'] ?? null,
-                        'description_de' => $data['de']['description'] ?? null,
-                        'poster_path' => $data['en']['poster_path'] ?? null,
-                    ]
-                );
+    private function fetchTranslations(array &$data, array $ids, string $type): void
+    {
+        foreach ($this->languages as $lang) 
+        {
+            if ($lang === 'en') continue;
+            foreach ($ids as $id) 
+            {
+                $this->fetchTranslation($data, $id, $lang, $type);
             }
         }
     }
+
+    //Fetch a single translation
+
+    private function fetchTranslation(array &$data, int $id, string $lang, string $type): void
+    {
+        try 
+        {
+            $response = Http::get("https://api.themoviedb.org/3/{$type}/{$id}", [
+                'api_key' => $this->apiKey,
+                'language' => $lang
+            ]);
+            $item = $response->json();
+            $data[$id][$lang] = [
+                'title' => $item['title'] ?? $item['name'] ?? null,
+                'description' => $item['overview'] ?? null
+            ];
+        } 
+        catch (\Exception $e) 
+        {
+            Log::error("Error fetching translation for {$type} {$id}: {$e->getMessage()}");
+        }
+    }
+
+    //Save data to database
+
+    private function saveData(array $data, $model, string $type): void
+    {
+        foreach ($data as $id => $dataItem) 
+        {
+            $attributes = $this->mapAttributes($dataItem);
+            if ($type === 'movie') 
+            {
+                $model::updateOrCreate(['tmdb_id' => $id], $attributes);
+            } 
+            elseif ($type === 'tv') 
+            {
+                $model::updateOrCreate(['title_en' => $dataItem['en']['title']], $attributes);
+            } 
+            elseif ($type === 'genre') 
+            {
+                $model::updateOrCreate(['name_en' => $dataItem['en']['name']], $attributes);
+            }
+        }
+    }
+
+    //Map the attributes for saving
+     
+    private function mapAttributes(array $dataItem): array
+    {
+        return [
+            'title_en' => $dataItem['en']['title'] ?? null,
+            'title_pl' => $dataItem['pl']['title'] ?? null,
+            'title_de' => $dataItem['de']['title'] ?? null,
+            'description_en' => $dataItem['en']['description'] ?? null,
+            'description_pl' => $dataItem['pl']['description'] ?? null,
+            'description_de' => $dataItem['de']['description'] ?? null,
+            'poster_path' => $dataItem['en']['poster_path'] ?? null,
+        ];
+    }
+
+    //Fetch and save movies table
     
+    public function fetchMovies(): void
+    {
+        $primaryLang = 'en';
+        list($moviesData, $movieIds) = $this->fetchData('movie/popular', 50, $primaryLang);
+        $this->fetchTranslations($moviesData, $movieIds, 'movie');
+        $this->saveData($moviesData, Movie::class, 'movie');
+    }
+
+    //Fetch and save series table
     
-    public function fetchGenres()
+    public function fetchSeries(): void
+    {
+        $primaryLang = 'en';
+        list($seriesData, $seriesIds) = $this->fetchData('tv/popular', 10, $primaryLang);
+        $this->fetchTranslations($seriesData, $seriesIds, 'tv');
+        $this->saveData($seriesData, Serie::class, 'tv');
+    }
+
+    /**
+     * Fetch and save genres table
+     */
+    public function fetchGenres(): void
     {
         $genresData = [];
-    
-        foreach ($this->languages as $lang) {
-            $response = $this->client->get("https://api.themoviedb.org/3/genre/movie/list?api_key={$this->apiKey}&language={$lang}");
-            $genres = json_decode($response->getBody(), true)['genres'] ?? [];
-    
-            foreach ($genres as $genre) {
-                $id = $genre['id'];
-    
-                $genresData[$id][$lang] = [
-                    'name' => $genre['name']
-                ];
+        foreach ($this->languages as $lang) 
+        {
+            try 
+            {
+                $response = Http::get("https://api.themoviedb.org/3/genre/movie/list", [
+                    'api_key' => $this->apiKey,
+                    'language' => $lang
+                ]);
+
+                $genres = $response->json()['genres'] ?? [];
+                foreach ($genres as $genre) {
+                    $id = $genre['id'];
+                    $genresData[$id][$lang] = ['name' => $genre['name']];
+                }
+            } 
+            catch (\Exception $e) 
+            {
+                Log::error("Error fetching genres: {$e->getMessage()}");
             }
         }
-    
-        foreach ($genresData as $id => $data) {
-            Genre::updateOrCreate(
-                ['id' => $id],
-                [
-                    'name_en' => $data['en']['name'] ?? null,
-                    'name_pl' => $data['pl']['name'] ?? null,
-                    'name_de' => $data['de']['name'] ?? null,
-                ]
-            );
-        }
+
+        $this->saveData($genresData, Genre::class, 'genre');
     }
-    
 }
