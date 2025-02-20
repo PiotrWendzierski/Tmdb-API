@@ -3,20 +3,26 @@
 namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 
 class Genre extends Model
 {
     use HasFactory;
-    // Dodajemy pola do fillable
-    protected $fillable = 
-    [
-        'name_en',
-        'name_pl',
-        'name_de'
-    ];
+    // add to fillable
+    protected $fillable = ['name_en','name_pl','name_de'];
 
-    public function getTranslatedTitle($lang = 'en')
+    private const AVAILABLE_LANGUAGES = ['en', 'pl', 'de'];
+
+    //get translated genre name, if not available, it set to english
+
+    public function getTranslatedTitle(string $lang = 'en'): string
     {
+        if (!in_array($lang, self::AVAILABLE_LANGUAGES)) 
+        {
+            Log::warning("Error: {$lang}. Used default language.");
+            return $this->name_en;
+        }
+
         return $this->{"name_{$lang}"} ?? $this->name_en;
     }
 }
