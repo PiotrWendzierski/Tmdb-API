@@ -4,22 +4,41 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Movie;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Http\JsonResponse;
 
 class MovieController extends Controller
 {
-    public function index(Request $request)
+    // all movies with translation
+    public function index(Request $request): JsonResponse
     {
-        $lang = $request->query('lang', 'en'); // Domyślnie angielski
+        try 
+        {
+            $lang = $request->query('lang', 'en');
 
-        $movies = Movie::all()->map(function ($movie) use ($lang) {
-            return 
-            [
-                'id' => $movie->id,
-                'title' => $movie->getTranslatedTitle($lang),
-                'description' => $movie->getTranslatedDescription($lang),
-            ];
-        });
+            // validate language
+            if (!in_array($lang, Movie::AVAILABLE_LANGUAGES)) 
+            {
+                Log::warning("Invalid language requested: {$lang}. Defaulting to English.");
+                $lang = 'en';
+            }
 
-        return response()->json($movies);
+            // get all movies
+            $movies = Movie::all();
+
+            // add translated title and description directly to the response
+            foreach ($movies as $movie) 
+            {
+                $movie->title = $movie->getTranslatedTitle($lang);
+                $movie->description = $movie->getTranslatedDescription($lang);
+            }
+
+            return response()->json($movies, 200);
+        } 
+        catch (\Exception $e) 
+        {
+            Log::error('Error fetching movies: ' . $e->getMessage());
+            return response()->json(['error' => 'Something went wrong'], 500);
+        }
     }
 }
