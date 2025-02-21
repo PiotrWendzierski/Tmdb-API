@@ -11,7 +11,7 @@ class Genre extends Model
     // add to fillable
     protected $fillable = ['name_en','name_pl','name_de'];
 
-    private const AVAILABLE_LANGUAGES = ['en', 'pl', 'de'];
+    public const AVAILABLE_LANGUAGES = ['en', 'pl', 'de'];
 
     //get translated genre name, if not available, it set to english
 

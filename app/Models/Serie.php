@@ -12,7 +12,7 @@ class Serie extends Model
     protected $fillable = ['title_en','title_pl','title_de','description_en',
     'description_pl','description_de','poster_path'];
 
-    private const AVAILABLE_LANGUAGES = ['en', 'pl', 'de'];
+    public const AVAILABLE_LANGUAGES = ['en', 'pl', 'de'];
     
     //get translated series name, if not available, it set to english
     public function getTranslatedTitle(string $lang = 'en'): string
